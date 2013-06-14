@@ -77,11 +77,12 @@ function s:nextval(operator)
 	" remember and adjust settings
 	if 'a' == 'A'
 		setlocal noignorecase
-    let ignorecase=1
-  endif
+	    	let ignorecase=1
+	endif
 	let iskeyword = &iskeyword   " remember current iskeyword
-  silent setlocal iskeyword+=# " enable #XX hex values
+	silent setlocal iskeyword+=# " enable #XX hex values
 	silent setlocal iskeyword+=- " enable negative values
+	silent setlocal iskeyword+=. " enable float values
 
 	let word = expand('<cword>')
 
@@ -91,41 +92,57 @@ function s:nextval(operator)
 	endif
 
 	" determine type of word (int/hex)
-	if matchstr(word,'\([1-9][0-9]*\)\|0') == word
+	if matchstr(word,'\(-\?[1-9][0-9]*\)\|0') == word
 		if b:nextval_type != 'hex'
 			let b:nextval_type = 'int'
 		endif
-	elseif matchstr(word,'[0-9]*\.[0-9]\+') == word
+	elseif matchstr(word,'-\?[0-9]*\.[0-9]\+') == word
 		let b:nextval_type = 'num'
 	elseif matchstr(word,'\(0x\|#\)\{0,1}[0-9a-fA-F]\+') == word
 		let b:nextval_type = 'hex'
 	elseif matchstr(word,'true\|false\c') == word
-    let b:nextval_type = 'bool'
+		let b:nextval_type = 'bool'
+	elseif matchstr(word,'\([^0-9]*\)\([0-9]*\)\([^0-9]*\)') == word " increment/decrement integer surrounded by text (i.e. abc12)
+		let m=matchlist(word,'\([^0-9]*\)\([0-9]*\)\([^0-9]*\)')
+		let b:nextval_type = 'int'
+		let word_split=1
+		let word_prefix=m[1]
+		let word=m[2]
+		let word_suffix=m[3]
+		if str2nr(word)==0 && a:operator == '-'	" do nothing when trying to decrement 0
+			let nop=1
+		endif
 	endif
 
-	if b:nextval_type == 'int'
-		let newword = a:operator == '+' ? str2nr(word)+1 : str2nr(word)-1
-	elseif b:nextval_type == 'num'
-		let newword = <SID>nextnum(word,a:operator)
-	elseif b:nextval_type == 'hex'
-		let newword = <SID>nexthex(word,a:operator)
-	elseif b:nextval_type == 'bool'
-		let newword = <SID>nextbool(word)
-	endif
+	if !exists('nop')
+		if b:nextval_type == 'int'
+			let newword = a:operator == '+' ? str2nr(word)+1 : str2nr(word)-1
+		elseif b:nextval_type == 'num'
+			let newword = <SID>nextnum(word,a:operator)
+		elseif b:nextval_type == 'hex'
+			let newword = <SID>nexthex(word,a:operator)
+		elseif b:nextval_type == 'bool'
+			let newword = <SID>nextbool(word)
+		endif
 
-	if exists('newword')
-		execute 'normal ciw' . newword
-		execute 'normal wb'
-	  let b:nextval_column = col('.')
-		let b:nextval_line = line('.')
-		"execute ':w'
+		if exists('word_split')
+			let newword=word_prefix . newword . word_suffix
+		endif
+
+		if exists('newword')
+			execute 'normal ciw' . newword
+			execute 'normal wb'
+			let b:nextval_column = col('.')
+			let b:nextval_line = line('.')
+			"execute ':w'
+		endif
 	endif
 
 	" restore settings
 	if exists('ignorecase')
 		setlocal ignorecase
 	endif
-  silent execute 'setlocal iskeyword='.iskeyword
+       	silent execute 'setlocal iskeyword='.iskeyword
 endfunction
 
 " switch boolean value
@@ -138,6 +155,10 @@ function s:nextbool(value)
 		return 'TRUE'
 	elseif a:value == 'TRUE'
 		return 'FALSE'
+	elseif a:value == 'False'
+		return 'True'
+	elseif a:value == 'True'
+		return 'False'
 	endif
 endfunction
 
