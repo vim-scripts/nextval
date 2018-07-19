@@ -110,12 +110,21 @@ nnoremap <SID>nextvalInc :call <SID>nextval('+')<CR>
 nnoremap <unique> <script> <Plug>nextvalDec <SID>nextvalDec
 nnoremap <SID>nextvalDec :call <SID>nextval('-')<CR>
 
-let s:re_hex = "\\(8'h\\|#16r\\|16#\\|16r\\|" " more pre-chars
+"let s:re_hex = "\\(3'h\\|#16r\\|16#\\|16r\\|" " more pre-chars
+let s:re_hex = "\\(\\d\\+'h\\|'h\\|#16r\\|16#\\|16r\\|" " more pre-chars
 let s:re_hex = s:re_hex . 'x"\|#x\|0[xh]\|\\[xuU]\|[XH]' . "'\\|" " 2 pre-chars
 let s:re_hex = s:re_hex . '[#\$hH]\|' " 1 pre-char
 let s:re_hex = s:re_hex . '\|\)' " no pre-chars
 let s:re_hex = s:re_hex . '\([0-9a-fA-F]\+\)' " hex himself
 let s:re_hex = s:re_hex . "\\([hH#\"']\\|\\)" " post-chars
+
+"let s:re_hex = "\\(3'h\\|#16r\\|16#\\|16r\\|" " more pre-chars
+let s:re_bin = "\\(\\d\\+'b\\|'b\\|0b" " more pre-chars
+"let s:re_bin = s:re_bin . 'x"\|#x\|0[xh]\|\\[xuU]\|[XH]' . "'\\|" " 2 pre-chars
+"let s:re_bin = s:re_bin . '[#\$hH]\|' " 1 pre-char
+let s:re_bin = s:re_bin . '\|\)' " no pre-chars
+let s:re_bin = s:re_bin . '\([0-9a-fA-F]\+\)' " hex himself
+let s:re_bin = s:re_bin . "\\([hH#\"']\\|\\)" " post-chars
 
 " main
 function s:nextval(operator)
@@ -163,6 +172,8 @@ function s:nextval(operator)
 		let b:nextval_type = 'num'
 	elseif matchstr(word, s:re_hex) == word
 		let b:nextval_type = 'hex'
+	elseif matchstr(word, s:re_bin) == word
+		let b:nextval_type = 'bin'
 	elseif matchstr(word,'true\|false\c') == word
 		let b:nextval_type = 'bool'
 	elseif matchstr(word,'\([^0-9]*\)\([0-9]\+\)\([^0-9]*\)') == word " increment/decrement integer surrounded by text (i.e. abc12)
@@ -183,6 +194,8 @@ function s:nextval(operator)
 		let newword = <SID>nextnum(word,a:operator)
 	elseif b:nextval_type == 'hex'
 		let newword = <SID>nexthex(word,a:operator)
+	elseif b:nextval_type == 'bin'
+		let newword = <SID>nextbin(word,a:operator)
 	elseif b:nextval_type == 'bool'
 		let newword = <SID>nextbool(word)
 	endif
@@ -250,21 +263,92 @@ function s:nexthex(value,operator)
 	let prefix = m[1]
 	let value = m[2]
 	let suffix = m[3]
-	let len = len(value)
-	let newval = a:operator == '+' ? str2nr(value,16)+1 : str2nr(value,16)-1
+   "Check to see if there is a specified width for the hex number (verilog
+   "only currently)
+   if str2nr(s:verilog_width(prefix)) > 0
+      let s:width = s:verilog_width(prefix)
+      let has_width = 'true'
+      let s:minus_one = float2nr(pow(2,s:width))-1
+   endif
+   "Now check if the value is about to go negative - if it is we care about
+   "its width and have to perform some crude maths based on the width
+   if has_width == 'true'
+      let len = (s:width-1)/4+1
+      if str2nr(value,16) == 0
+         let newval = a:operator == '+' ? str2nr(value,16)+1 : s:minus_one
+      elseif str2nr(value,16) == s:minus_one
+         let newval = a:operator == '+' ? 0                  : str2nr(value,16)-1
+      else
+         let newval = a:operator == '+' ? str2nr(value,16)+1 : str2nr(value,16)-1
+      endif
+   else
+      let newval = a:operator == '+' ? str2nr(value,16)+1 : str2nr(value,16)-1
+      let len = len(value)
+   endif
+
 	if strpart(value,0,1) != '0' " || ... todo ?! when will a use have fixed digits?! ... fmod(len,2)
 		let len = 1
 	endif
+
+   "Create upper/lowercase hex value
 	if len(matchstr(value,'[A-F]'))
-		let b:nextval_hexupper = 1
+      let hex_modifier = 'X'
 	elseif len(matchstr(value,'[a-f]'))
-		let b:nextval_hexupper = 0
+      let hex_modifier = 'x'
+   else
+      "TODO should not enter here!
+      let hex_modifier = 'X'
 	endif
-	if b:nextval_hexupper
-		let newhex = printf('%0' . len . 'X', newval)
-	else
-		let newhex = printf('%0' . len . 'x', newval)
-	endif
+   
+   let newhex = printf('%0' . len . hex_modifier, newval)
 	return prefix . newhex . suffix
 endfunction
 
+" change bin value (#X; 0xX; X)
+function s:nextbin(value,operator)
+	let m = matchlist(a:value,s:re_bin)
+	let prefix = m[1]
+	let value = m[2]
+	let suffix = m[3]
+	let len = len(value)
+   "Check to see if there is a specified width for the hex number (verilog
+   "only currently)
+   if str2nr(s:verilog_width(prefix)) > 0
+      let s:width = s:verilog_width(prefix)
+      let has_width = 'true'
+      let s:minus_one = float2nr(pow(2,s:width))-1
+   endif
+   "Now check if the value is about to go negative - if it is we care about
+   "its width and have to perform some crude maths based on the width
+   if has_width == 'true'
+      if str2nr(value,2) == 0
+         let newval = a:operator == '+' ? str2nr(value,2)+1 : s:minus_one
+      elseif str2nr(value,2) == s:minus_one
+         let newval = a:operator == '+' ? 0                 : str2nr(value,2)-1
+      else
+         let newval = a:operator == '+' ? str2nr(value,2)+1 : str2nr(value,2)-1
+      endif
+   else
+      let newval = a:operator == '+' ? str2nr(value,2)+1 : str2nr(value,2)-1
+   endif
+
+	if strpart(value,0,1) != '0' " || ... todo ?! when will a use have fixed digits?! ... fmod(len,2)
+		let len = 1
+	endif
+   if has_width == 'true'
+      let newbin = printf('%0' . s:width . 'b', newval)
+   else
+      let newbin = printf('%0' . len . 'b', newval)
+   endif
+	return prefix . newbin . suffix
+endfunction
+
+function s:verilog_width(prefix)
+   let s:re_width    = "\\(\\d\\+\\)'[hbd]"
+   let local_width   = matchlist(a:prefix, s:re_width)
+   if local_width[1] == ''
+      return -1
+   else
+      return str2nr(local_width[1])
+   endif
+endfunction
